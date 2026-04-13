@@ -1,0 +1,1 @@
+# Solution for developping a mini game
