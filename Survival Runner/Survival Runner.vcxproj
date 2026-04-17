@@ -18,6 +18,21 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\..\mini game of Anti02\include\Collectible.hpp" />
+    <ClInclude Include="..\..\..\mini game of Anti02\include\Game.hpp" />
+    <ClInclude Include="..\..\..\mini game of Anti02\include\Obstacle.hpp" />
+    <ClInclude Include="..\..\..\mini game of Anti02\include\Platform.hpp" />
+    <ClInclude Include="..\..\..\mini game of Anti02\include\Player.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\..\mini game of Anti02\src\Collectible.cpp" />
+    <ClCompile Include="..\..\..\mini game of Anti02\src\Game.cpp" />
+    <ClCompile Include="..\..\..\mini game of Anti02\src\main.cpp" />
+    <ClCompile Include="..\..\..\mini game of Anti02\src\Obstacle.cpp" />
+    <ClCompile Include="..\..\..\mini game of Anti02\src\Platform.cpp" />
+    <ClCompile Include="..\..\..\mini game of Anti02\src\Player.cpp" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
@@ -132,17 +147,6 @@
       <AdditionalDependencies>sfml-graphics.lib;sfml-window.lib;sfml-system.lib;sfml-network-d.lib;sfml-audio-d.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup>
-    <ClCompile Include="Game.cpp" />
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="Obstacle.cpp" />
-    <ClCompile Include="Player.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="Game.hpp" />
-    <ClInclude Include="Obstacle.hpp" />
-    <ClInclude Include="Player.hpp" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
