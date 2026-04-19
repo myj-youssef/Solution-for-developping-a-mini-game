@@ -1,106 +1,203 @@
 #include "Player.hpp"
+#include "Platform.hpp"
+#include <iostream>
+#include <cmath>
 
-Player::Player(float startX, float groundY, const sf::Texture& t1, const sf::Texture& t2, bool tLoaded)
-    : groundLevel(groundY), gravity(2000.0f), jumpForce(800.0f), moveSpeed(250.0f),
-      normalSize(50.0f, 100.0f), duckSize(50.0f, 50.0f),
-      isJumping(false), isDucking(false),
-      hasTextures(tLoaded), texRun1(&t1), texRun2(&t2), animTimer(0.0f) {
-      
-    if (hasTextures) {
-        sprite.setTexture(*texRun1);
-        sf::Vector2u texSize = texRun1->getSize();
-        
-        // NORMALISATION DE LA TAILLE DE L'IMAGE
-        if (texSize.x > 0 && texSize.y > 0) {
-            sprite.setScale(normalSize.x / static_cast<float>(texSize.x), 
-                            normalSize.y / static_cast<float>(texSize.y));
-            sprite.setOrigin(0.0f, static_cast<float>(texSize.y));
-        }
-        sprite.setPosition(startX, groundLevel);
-    }
-    
-    fallbackShape.setSize(normalSize);
-    fallbackShape.setFillColor(sf::Color::Blue);
-    fallbackShape.setOrigin(0.0f, normalSize.y);
-    fallbackShape.setPosition(startX, groundLevel);
-    
-    velocity = sf::Vector2f(0.0f, 0.0f);
+Player::Player() {
+    pTexRun1 = nullptr;
+    pTexRun2 = nullptr;
+    pTexDuck = nullptr;
+    hasTexRun1 = false;
+    hasTexRun2 = false;
+    hasTexDuck = false;
 }
 
-void Player::update(float deltaTime, bool isRunningKey) {
-    velocity.y += gravity * deltaTime;
+/**
+ * @brief Constructeur - Utilisation de références vers textures (const sf::Texture&)
+ * Optimise l'empreinte mémoire et respecte les consignes du Chapitre 07 sur 
+ * la gestion optimisée des ressources externes.
+ */
+Player::Player(const sf::Texture& texR1, bool hasT1, const sf::Texture& texR2, bool hasT2, const sf::Texture& texD, bool hasTD) {
+    normalWidth = 60.f;  // slightly wider to fit the sprite aspect ratio
+    normalHeight = 80.f;
+    groundHeight = 460.f;
     
-    if (hasTextures) sprite.move(velocity.x * deltaTime, velocity.y * deltaTime);
-    fallbackShape.move(velocity.x * deltaTime, velocity.y * deltaTime);
+    velocityY = 0.f;
+    gravity = 1500.f;
+    jumpForce = -700.f;
+    speedX = 350.f;
     
-    float currentY = hasTextures ? sprite.getPosition().y : fallbackShape.getPosition().y;
-    if (currentY >= groundLevel) {
-        if (hasTextures) {
-            sf::Vector2f pos = sprite.getPosition();
-            pos.y = groundLevel;
-            sprite.setPosition(pos);
+    isJumping = false;
+    isDucking = false;
+    maxLives = 2;
+    currentLives = 2;
+    invincibilityTimer = 0.f;
+    animTimer = 0.f;
+    currentFrame = 1;
+
+    // Fallback visuel
+    fallbackShape.setSize(sf::Vector2f(normalWidth, normalHeight));
+    fallbackShape.setFillColor(sf::Color::Green);
+    fallbackShape.setPosition(100.f, groundHeight - normalHeight);
+
+    // Enregistrement des pointeurs associés
+    pTexRun1 = hasT1 ? &texR1 : nullptr;
+    pTexRun2 = hasT2 ? &texR2 : nullptr;
+    pTexDuck = hasTD ? &texD : nullptr;
+    hasTexRun1 = hasT1;
+    hasTexRun2 = hasT2;
+    hasTexDuck = hasTD;
+
+    if (hasTexRun1) {
+        sprite.setTexture(*pTexRun1);
+        float sX = normalWidth / pTexRun1->getSize().x;
+        float sY = normalHeight / pTexRun1->getSize().y;
+        sprite.setScale(sX, sY);
+        sprite.setPosition(100.f, groundHeight - sprite.getGlobalBounds().height);
+    }
+}
+
+Player::~Player() {}
+
+void Player::update(float deltaTime, const std::vector<Platform*>& platforms, bool moveLeft, bool moveRight) {
+    if (invincibilityTimer > 0.f) {
+        invincibilityTimer -= deltaTime;
+        if (hasTexRun1 || hasTexDuck) {
+            if (fmod(invincibilityTimer, 0.2f) < 0.1f) {
+                sprite.setColor(sf::Color(255, 255, 255, 128));
+            } else {
+                sprite.setColor(sf::Color(255, 255, 255, 255));
+            }
         }
-        sf::Vector2f posF = fallbackShape.getPosition();
-        posF.y = groundLevel;
-        fallbackShape.setPosition(posF);
+    } else {
+        if (hasTexRun1 || hasTexDuck) sprite.setColor(sf::Color(255, 255, 255, 255));
+    }
+
+    float currentX = getPosition().x;
+    if (moveRight && currentX + normalWidth < 800.f) {
+        if (hasTexRun1 || hasTexDuck) sprite.move(speedX * deltaTime, 0);
+        fallbackShape.move(speedX * deltaTime, 0);
+    } else if (moveLeft && currentX > 0.f) {
+        if (hasTexRun1 || hasTexDuck) sprite.move(-speedX * deltaTime, 0);
+        fallbackShape.move(-speedX * deltaTime, 0);
+    }
+
+    if (isJumping) {
+        velocityY += gravity * deltaTime;
         
-        velocity.y = 0.0f;
-        isJumping = false;
-    }
-
-    sf::Vector2f currentPos = hasTextures ? sprite.getPosition() : fallbackShape.getPosition();
-    float width = hasTextures ? sprite.getGlobalBounds().width : fallbackShape.getSize().x;
-    
-    if (currentPos.x < 0.0f) {
-        if (hasTextures) sprite.setPosition(0.0f, currentPos.y);
-        fallbackShape.setPosition(0.0f, currentPos.y);
-    } else if (currentPos.x > 800.0f - width) {
-        if (hasTextures) sprite.setPosition(800.0f - width, currentPos.y);
-        fallbackShape.setPosition(800.0f - width, currentPos.y);
-    }
-
-    if (hasTextures && isRunningKey && !isJumping && !isDucking) {
-        animTimer += deltaTime;
-        if (animTimer >= 0.15f) { 
-            animTimer = 0.0f;
-            if (sprite.getTexture() == texRun1) sprite.setTexture(*texRun2);
-            else sprite.setTexture(*texRun1);
+        fallbackShape.move(0, velocityY * deltaTime);
+        if (hasTexRun1) sprite.move(0, velocityY * deltaTime);
+        
+        float currentY = hasTexRun1 ? sprite.getPosition().y + sprite.getGlobalBounds().height : fallbackShape.getPosition().y + fallbackShape.getSize().y;
+        
+        float targetY = groundHeight;
+        sf::FloatRect playerBounds = getBounds();
+        
+        if (velocityY > 0) { // falling down
+            for (Platform* plat : platforms) {
+                sf::FloatRect pBounds = plat->getBounds();
+                if (playerBounds.left + playerBounds.width > pBounds.left && playerBounds.left < pBounds.left + pBounds.width) {
+                    float playerPrevBottom = currentY - (velocityY * deltaTime);
+                    if (playerPrevBottom <= pBounds.top + 15.f && currentY >= pBounds.top) {
+                        targetY = pBounds.top;
+                        break;
+                    }
+                }
+            }
         }
-    } else if (hasTextures && (!isRunningKey || isJumping || isDucking)) {
-        sprite.setTexture(*texRun1);
-        animTimer = 0.0f;
+        
+        if (currentY >= targetY) {
+            if (hasTexRun1) sprite.setPosition(sprite.getPosition().x, targetY - sprite.getGlobalBounds().height);
+            fallbackShape.setPosition(fallbackShape.getPosition().x, targetY - fallbackShape.getSize().y);
+            isJumping = false;
+            velocityY = 0.f;
+        }
+    } else {
+        float currentY = hasTexRun1 ? sprite.getPosition().y + sprite.getGlobalBounds().height : fallbackShape.getPosition().y + fallbackShape.getSize().y;
+        if (currentY < groundHeight) {
+            bool onPlatform = false;
+            sf::FloatRect playerBounds = getBounds();
+            for (Platform* plat : platforms) {
+                sf::FloatRect pBounds = plat->getBounds();
+                if (playerBounds.left + playerBounds.width > pBounds.left && playerBounds.left < pBounds.left + pBounds.width) {
+                    if (std::abs(currentY - pBounds.top) < 5.f) {
+                        onPlatform = true;
+                        break;
+                    }
+                }
+            }
+            if (!onPlatform) {
+                isJumping = true;
+                velocityY = 0.f; // start falling
+            }
+        }
+
+        if (!isDucking && (hasTexRun1 || hasTexRun2)) {
+            // Animation du Sprite uniquement lors du déplacement
+            if (moveRight || moveLeft) {
+                animTimer += deltaTime;
+                if (animTimer > 0.15f) { // Cycle calibré validé
+                    animTimer = 0.f;
+                    currentFrame = (currentFrame == 1) ? 2 : 1;
+                    
+                    if (currentFrame == 1 && hasTexRun1) sprite.setTexture(*pTexRun1);
+                    else if (currentFrame == 2 && hasTexRun2) sprite.setTexture(*pTexRun2);
+                }
+            } else {
+                // Retour à la frame statique (idle)
+                currentFrame = 1;
+                if (hasTexRun1) sprite.setTexture(*pTexRun1);
+                animTimer = 0.f;
+            }
+        }
     }
 }
 
 void Player::draw(sf::RenderWindow& window) {
-    if (hasTextures) window.draw(sprite);
+    if (hasTexRun1 || hasTexDuck) window.draw(sprite);
     else window.draw(fallbackShape);
 }
 
-void Player::run(float directionMultiplier) {
-    velocity.x = moveSpeed * directionMultiplier;
-}
-
 void Player::jump() {
-    if (!isJumping) {
-        velocity.y = -jumpForce;
+    if (!isJumping && !isDucking) {
         isJumping = true;
-        if (isDucking) standUp();
+        velocityY = jumpForce;
     }
 }
 
 void Player::duck() {
-    if (!isJumping && !isDucking) {
+    if (!isDucking) { // Retrait de "!isJumping" pour autoriser le duck aérien
         isDucking = true;
-        fallbackShape.setSize(duckSize);
-        fallbackShape.setOrigin(0.0f, duckSize.y);
         
-        if (hasTextures) {
-            sf::Vector2u texSize = texRun1->getSize();
-            if(texSize.x > 0 && texSize.y > 0) {
-                sprite.setScale(normalSize.x / static_cast<float>(texSize.x), 
-                               (normalSize.y / static_cast<float>(texSize.y)) * 0.5f);
-            }
+        // Sauvegarde la position du bas (les pieds) pour réaligner après le changement de taille
+        float oldBottom = fallbackShape.getPosition().y + fallbackShape.getSize().y;
+        if (hasTexRun1 || hasTexDuck) {
+            oldBottom = sprite.getPosition().y + sprite.getGlobalBounds().height;
+        }
+        
+        fallbackShape.setSize(sf::Vector2f(normalWidth, normalHeight / 2.f));
+        fallbackShape.setFillColor(sf::Color(0, 200, 0)); 
+        
+        if (hasTexDuck) {
+            sprite.setTexture(*pTexDuck);
+            float sX = normalWidth / pTexDuck->getSize().x;
+            float sY = (normalHeight / 2.f) / pTexDuck->getSize().y;
+            sprite.setScale(sX, sY);
+        } else if (hasTexRun1) {
+            float sX = normalWidth / pTexRun1->getSize().x;
+            float sY = (normalHeight / 2.f) / pTexRun1->getSize().y;
+            sprite.setScale(sX, sY);
+        }
+
+        // Repositionne exactement à l'ancienne base
+        fallbackShape.setPosition(fallbackShape.getPosition().x, oldBottom - fallbackShape.getSize().y);
+        if (hasTexDuck || hasTexRun1) {
+            sprite.setPosition(sprite.getPosition().x, oldBottom - sprite.getGlobalBounds().height);
+        }
+
+        // Fast-Fall : Si on est en l'air et qu'on monte, la touche Bas annule l'ascension !
+        if (isJumping && velocityY < 0.f) {
+            velocityY = 0.f; 
         }
     }
 }
@@ -108,38 +205,51 @@ void Player::duck() {
 void Player::standUp() {
     if (isDucking) {
         isDucking = false;
-        fallbackShape.setSize(normalSize);
-        fallbackShape.setOrigin(0.0f, normalSize.y);
         
-        if (hasTextures) {
-            sf::Vector2u texSize = texRun1->getSize();
-            if(texSize.x > 0 && texSize.y > 0) {
-                sprite.setScale(normalSize.x / static_cast<float>(texSize.x), 
-                                normalSize.y / static_cast<float>(texSize.y));
-            }
+        // Pour se relever sans traverser le sol, on s'aligne aussi par rapport au bas !
+        float oldBottom = fallbackShape.getPosition().y + fallbackShape.getSize().y;
+        if (hasTexRun1 || hasTexDuck) {
+            oldBottom = sprite.getPosition().y + sprite.getGlobalBounds().height;
+        }
+        
+        fallbackShape.setSize(sf::Vector2f(normalWidth, normalHeight));
+        fallbackShape.setFillColor(sf::Color::Green);
+        
+        if (hasTexRun1) {
+            float sX = normalWidth / pTexRun1->getSize().x;
+            float sY = normalHeight / pTexRun1->getSize().y;
+            sprite.setScale(sX, sY);
+            sprite.setTexture(*pTexRun1);
+        }
+
+        // Réalignement par le bas
+        fallbackShape.setPosition(fallbackShape.getPosition().x, oldBottom - fallbackShape.getSize().y);
+        if (hasTexRun1) {
+            sprite.setPosition(sprite.getPosition().x, oldBottom - sprite.getGlobalBounds().height);
         }
     }
 }
 
-void Player::reset() {
-    if (hasTextures) sprite.setPosition(100.0f, groundLevel);
-    fallbackShape.setPosition(100.0f, groundLevel); 
-    velocity.x = 0.0f;
-    velocity.y = 0.0f;
-    isJumping = false;
-    standUp();
+sf::FloatRect Player::getBounds() const {
+    if (hasTexRun1 || hasTexDuck) {
+        sf::FloatRect bounds = sprite.getGlobalBounds();
+        bounds.left += bounds.width * 0.2f;
+        bounds.width *= 0.6f;
+        bounds.top += bounds.height * 0.1f;
+        bounds.height *= 0.9f;
+        return bounds;
+    }
+    return fallbackShape.getGlobalBounds();
 }
 
-/**
- * @brief Récupère une Hitbox plus indulgente en réduisant le contour complet.
- */
-sf::FloatRect Player::getHitbox() const {
-    sf::FloatRect bounds = hasTextures ? sprite.getGlobalBounds() : fallbackShape.getGlobalBounds();
-    // Retrait de 10% sur X et Y
-    float shrinkX = bounds.width * 0.1f;
-    float shrinkY = bounds.height * 0.1f;
-    return sf::FloatRect(bounds.left + shrinkX / 2.0f, 
-                         bounds.top + shrinkY / 2.0f, 
-                         bounds.width - shrinkX, 
-                         bounds.height - shrinkY);
+sf::Vector2f Player::getPosition() const {
+    return hasTexRun1 || hasTexDuck ? sprite.getPosition() : fallbackShape.getPosition();
+}
+
+bool Player::takeDamage() {
+    if (invincibilityTimer > 0.f) return false;
+    currentLives--;
+    if (currentLives <= 0) return true;
+    invincibilityTimer = 1.5f;
+    return false;
 }

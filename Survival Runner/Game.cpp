@@ -3,428 +3,391 @@
 #include <cstdlib>
 #include <ctime>
 
-/**
- * @brief Constructeur Principal du Jeu.
- * Responsabilités L2 : Initialiser la fenêtre SFML, les compteurs de boucle, 
- * et appliquer le pattern Flyweight : on charge les textures une et une seule fois
- * en mémoire (VRAM), et on passe leurs adresses aux entités pour éviter les copies colossales.
- */
-Game::Game() 
-    : window(sf::VideoMode(800, 600), "Application de Jeu de Cachette - Rendu Final L2"),
-      state(GameState::Menu),
-      debugMode(false),
-      totalTimeLimit(30.0f),
-      remainingTime(30.0f),
-      distanceCovered(0.0f),
-      distanceToBunker(1000.0f),
-      score(0.0f),
-      timeSinceLastObstacle(0.0f),
-      selectedMenuOption(0),
-      bgScrollSpeed(100.0f) {
-          
+namespace {
+    bool loadTextureWithMask(sf::Texture& tex, const std::string& filepath) {
+        sf::Image img;
+        if (!img.loadFromFile(filepath)) return false;
+        img.createMaskFromColor(sf::Color::White);
+        return tex.loadFromImage(img);
+    }
+}
+
+Game::Game() : window(sf::VideoMode(800, 600), "Application de Jeu de Cachette"), state(GameState::Menu) {
     window.setFramerateLimit(60);
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
 
-    // Chargement Font (Sécurisé)
-    if (!font.loadFromFile("arial.ttf")) {
-        hasFont = false;
-        std::cerr << "Erreur: 'arial.ttf' manquant. Les textes critiques ne s'afficheront pas.\n";
+    loadAssets();
+
+
+
+    timeLimit = 50.f;
+    
+    initUI();
+    resetGame();
+}
+
+/**
+ * @brief Chargement centralisé des fichiers.
+ * Évite de lire le même PNG sur le disque dur à chaque spawn de Mine ou de Drone (Optimisation).
+ */
+void Game::loadAssets() {
+    fontLoaded = font.loadFromFile("assets/arial.ttf");
+    if (!fontLoaded) fontLoaded = font.loadFromFile("arial.ttf");
+
+    hasBgTexture = bgTexture.loadFromFile("assets/background.png");
+    if (hasBgTexture) {
+        bgSprite1.setTexture(bgTexture);
+        bgSprite2.setTexture(bgTexture);
+        float scaleX = 800.f / bgTexture.getSize().x;
+        float scaleY = 600.f / bgTexture.getSize().y;
+        bgSprite1.setScale(scaleX, scaleY);
+        bgSprite2.setScale(scaleX, scaleY);
+        bgSprite1.setPosition(0.f, 0.f);
+        bgSprite2.setPosition(800.f, 0.f);
     } else {
-        hasFont = true;
+        std::cerr << "AVERTISSEMENT: 'assets/background.png' absent." << std::endl;
     }
 
-    // Gestion centralisée des Textures (Flyweight Pattern)
-    hasPlayerTex = playerRun1Tex.loadFromFile("assets/player_run1.png") && 
-                   playerRun2Tex.loadFromFile("assets/player_run2.png");
-    if (!hasPlayerTex) std::cerr << "Erreur: Textures Player manquantes (assets/player_run[1/2].png). Activation fallback block geometrique.\n";
+    // Chargement unique des Textures d'entités avec masque transparent
+    hasPRun1 = loadTextureWithMask(playerTexRun1, "assets/player.png");
+    hasPRun2 = loadTextureWithMask(playerTexRun2, "assets/player2.png");
+    hasPDuck = loadTextureWithMask(playerTexDuck, "assets/player_duck.png");
+    hasEnemyTex = loadTextureWithMask(enemyTex, "assets/enemy.png");
+    hasMineTex = loadTextureWithMask(mineTex, "assets/mine.png");
+    hasDroneTex = loadTextureWithMask(droneTex, "assets/drone.png");
+    hasBirdTex = loadTextureWithMask(birdTex, "assets/bird.png");
+    hasTreasureTex = loadTextureWithMask(treasureTex, "assets/treasure.png");
+    hasPlatformTex = loadTextureWithMask(platformTex, "assets/platform.png");
+    hasCollectibleTex = loadTextureWithMask(collectibleTex, "assets/banana.png");
 
-    hasMineTex = mineTex.loadFromFile("assets/mine.png");
-    if (!hasMineTex) std::cerr << "Erreur: Texture Mine (assets/mine.png) manquante. Activation fallback couleur.\n";
-
-    hasDroneTex = droneTex.loadFromFile("assets/drone.png");
-    if (!hasDroneTex) std::cerr << "Erreur: Texture Drone (assets/drone.png) manquante. Activation fallback couleur.\n";
-
-    hasBgTex = bgTex.loadFromFile("assets/background.png");
-    if (!hasBgTex) {
-        std::cerr << "Erreur: Texture de fond d'ecran (assets/background.png) manquante.\n";
+    // Chargement de la musique
+    if (!bgMusic.openFromFile("assets/jungle_theme.wav")) {
+      std::cerr << "AVERTISSEMENT: 'assets/jungle_theme.ogg' absent."
+                << std::endl;
     } else {
-        // Paramétrage du Parallax statique (2 sprites mis côte-à-côte pour créer un mouvement infini)
-        bgSprite1.setTexture(bgTex);
-        bgSprite2.setTexture(bgTex);
-        bgSprite2.setPosition(static_cast<float>(bgTex.getSize().x), 0.0f);
+      bgMusic.setLoop(true);    // La musique recommence à l'infini
+      bgMusic.setVolume(30.f);  // Baisse un peu le volume (30%) pour ne pas
+                                // exploser les oreilles
+      bgMusic.play();           // Lance la musique dès le chargement
+    }
+}
+
+Game::~Game() {
+    for (size_t i = 0; i < obstacles.size(); ++i) delete obstacles[i];
+    obstacles.clear();
+    for (size_t i = 0; i < platforms.size(); ++i) delete platforms[i];
+    platforms.clear();
+    for (size_t i = 0; i < collectibles.size(); ++i) delete collectibles[i];
+    collectibles.clear();
+}
+
+void Game::initUI() {
+    if (fontLoaded) {
+        titleText.setFont(font);
+        instructionText.setFont(font);
+        statusText.setFont(font);
+        scoreText.setFont(font);
     }
     
-    // Instanciation Manuelle du Joueur : On transmet de façon très optimisée les textures constantes.
-    player = new Player(100.0f, 500.0f, playerRun1Tex, playerRun2Tex, hasPlayerTex);
+    scoreText.setCharacterSize(24);
+    scoreText.setFillColor(sf::Color::Yellow);
+    scoreText.setPosition(20.f, 20.f);
+
+    titleText.setCharacterSize(50);
+    titleText.setFillColor(sf::Color::White);
+    titleText.setString("Jeu de Cachette (Bunker)");
+    
+    sf::FloatRect textRect = titleText.getLocalBounds();
+    titleText.setOrigin(textRect.left + textRect.width/2.0f, textRect.top  + textRect.height/2.0f);
+    titleText.setPosition(sf::Vector2f(400.0f, 150.0f));
+
+    instructionText.setCharacterSize(24);
+    instructionText.setFillColor(sf::Color::White);
+    instructionText.setString("Appuyez sur [Entree] pour Jouer\n[A] pour A Propos\n[Echap] pour Quitter");
+    
+    textRect = instructionText.getLocalBounds();
+    instructionText.setOrigin(textRect.left + textRect.width/2.0f, textRect.top  + textRect.height/2.0f);
+    instructionText.setPosition(sf::Vector2f(400.0f, 300.0f));
+
+    statusText.setCharacterSize(40);
+    
+    progressBarBackground.setSize(sf::Vector2f(400.f, 20.f));
+    progressBarBackground.setFillColor(sf::Color(50, 50, 50, 200));
+    progressBarBackground.setPosition(200.f, 20.f);
+    
+    progressBarFill.setSize(sf::Vector2f(0.f, 20.f));
+    progressBarFill.setFillColor(sf::Color::Cyan);
+    progressBarFill.setPosition(200.f, 20.f);
+
+    healthBarFill.setSize(sf::Vector2f(200.f, 20.f));
+    healthBarFill.setFillColor(sf::Color::Red);
+    healthBarFill.setPosition(650.f, 20.f); // Mettre en haut a droite
+    
+    healthText.setString("Sang");
+    if (fontLoaded) healthText.setFont(font);
+    healthText.setCharacterSize(18);
+    healthText.setFillColor(sf::Color::White);
+    healthText.setPosition(650.f, 0.f);
+    
+    if (fontLoaded) timerText.setFont(font);
+    timerText.setCharacterSize(20);
+    timerText.setFillColor(sf::Color::White);
+    // Placé sous la progress bar
+    timerText.setPosition(360.f, 45.f);
 }
 
-/**
- * @brief Destructeur de Game.
- * Fondamental en C++ : Empêche toute fuite de mémoire (Memory Leak) 
- * en utilisant 'delete' sur tous les objets instanciés via 'new'.
- */
-Game::~Game() {
-    delete player;
-    clearObstacles(); 
-}
-
-/**
- * @brief Vide la mémoire des pointeurs bruts d'obstacles restants.
- */
-void Game::clearObstacles() {
-    for (Obstacle* obs : obstacles) {
-        delete obs;
-    }
-    obstacles.clear();
-}
-
-/**
- * @brief Réinitialise l'état du jeu pour une nouvelle partie.
- */
 void Game::resetGame() {
-    player->reset();
-    clearObstacles();
-    remainingTime = totalTimeLimit;
-    distanceCovered = 0.0f;
-    timeSinceLastObstacle = 0.0f;
-    score = 0.0f;
+    elapsedTime = 0.f;
+    obstacleSpawnTimer = 0.f;
+    bananaScore = 0;
+    treasureSpawned = false;
+    
+    for (size_t i = 0; i < obstacles.size(); ++i) delete obstacles[i];
+    obstacles.clear();
+    for (size_t i = 0; i < platforms.size(); ++i) delete platforms[i];
+    platforms.clear();
+    for (size_t i = 0; i < collectibles.size(); ++i) delete collectibles[i];
+    collectibles.clear();
+    
+    // L'objet Player est remplacé, et reçoit les Textures paramétrées via références (const sf::Texture&)
+    player = Player(playerTexRun1, hasPRun1, playerTexRun2, hasPRun2, playerTexDuck, hasPDuck);
 }
 
-/**
- * @brief Game Loop Standard L2 (Event -> Update -> Render)
- */
+void Game::spawnEntities() {
+    if (elapsedTime >= timeLimit - 5.f) {
+        if (!treasureSpawned) {
+            obstacles.push_back(new Treasure(360.f, 850.f, treasureTex, hasTreasureTex));
+            treasureSpawned = true;
+        }
+        return;
+    }
+    
+    int type = std::rand() % 3;
+    float startX = 850.f;
+    
+    if (type == 0) {
+        int obsType = std::rand() % 4;
+        if (obsType == 0) obstacles.push_back(new Enemy(460.f, startX, enemyTex, hasEnemyTex));
+        else if (obsType == 1) obstacles.push_back(new Mine(460.f, startX, mineTex, hasMineTex));
+        else if (obsType == 2) obstacles.push_back(new Drone(390.f + (std::rand() % 25), startX, droneTex, hasDroneTex));
+        else if (obsType == 3) obstacles.push_back(new Bird(50.f, startX, birdTex, hasBirdTex));
+    } else if (type == 1) {
+        // Spawn Platform and Collectible
+        float pHeight = 310.f + (std::rand() % 80);
+        platforms.push_back(new Platform(pHeight, startX, 150.f, platformTex, hasPlatformTex));
+        if (std::rand() % 2 == 0) {
+            collectibles.push_back(new Collectible(pHeight - 40.f, startX + 50.f, collectibleTex, hasCollectibleTex));
+        }
+    } else {
+        // Spawn Collectible without platform
+        collectibles.push_back(new Collectible(310.f + (std::rand() % 100), startX, collectibleTex, hasCollectibleTex));
+    }
+}
+
 void Game::run() {
-    sf::Clock clock;
+    sf::Clock dtClock;
     while (window.isOpen()) {
-        float deltaTime = clock.restart().asSeconds();
+        float deltaTime = dtClock.restart().asSeconds();
         processEvents();
         update(deltaTime);
         render();
     }
 }
 
-/**
- * @brief Moteur Evénementiel.
- * Gère tout ce qui est pression instantanée (menus, sauts, etc...).
- */
 void Game::processEvents() {
     sf::Event event;
     while (window.pollEvent(event)) {
         if (event.type == sf::Event::Closed) {
             window.close();
         }
-        
+
         if (event.type == sf::Event::KeyPressed) {
+            if (event.key.code == sf::Keyboard::Escape) window.close();
+
             if (state == GameState::Menu) {
-                if (event.key.code == sf::Keyboard::Up) {
-                    selectedMenuOption = (selectedMenuOption > 0) ? selectedMenuOption - 1 : 2;
-                } else if (event.key.code == sf::Keyboard::Down) {
-                    selectedMenuOption = (selectedMenuOption < 2) ? selectedMenuOption + 1 : 0;
-                } else if (event.key.code == sf::Keyboard::Enter) {
-                    if (selectedMenuOption == 0) {
-                        resetGame();
-                        state = GameState::Playing;
-                    } else if (selectedMenuOption == 1) {
-                        state = GameState::About;
-                    } else if (selectedMenuOption == 2) {
-                        window.close();
-                    }
-                }
-            } else if (state == GameState::About) {
-                if (event.key.code == sf::Keyboard::Escape) {
-                    state = GameState::Menu;
-                }
-            } else if (state == GameState::Playing) {
-                if (event.key.code == sf::Keyboard::D) {
-                    debugMode = !debugMode;
-                }
-                
-                // Actions ponctuelles
-                if (event.key.code == sf::Keyboard::Up || event.key.code == sf::Keyboard::Space) {
-                    player->jump();
-                } else if (event.key.code == sf::Keyboard::Down) {
-                    player->duck();
-                }
-            } else if (state == GameState::GameOver || state == GameState::Victory) {
-                // Possibilité de relancer en appuyant sur Entrée ou R comme demandé.
-                if (event.key.code == sf::Keyboard::Escape) {
-                    state = GameState::Menu;
-                } else if (event.key.code == sf::Keyboard::Enter || event.key.code == sf::Keyboard::R) {
+                if (event.key.code == sf::Keyboard::Enter) {
                     resetGame();
                     state = GameState::Playing;
+                } else if (event.key.code == sf::Keyboard::A) {
+                    state = GameState::About;
+                }
+            } else if (state == GameState::About) {
+                if (event.key.code == sf::Keyboard::Enter || event.key.code == sf::Keyboard::Escape) state = GameState::Menu;
+            } else if (state == GameState::GameOver || state == GameState::Win) {
+                if (event.key.code == sf::Keyboard::Enter || event.key.code == sf::Keyboard::R) state = GameState::Menu;
+            } else if (state == GameState::Playing) {
+                if (event.key.code == sf::Keyboard::Up || event.key.code == sf::Keyboard::Space) {
+                    player.jump();
+                } else if (event.key.code == sf::Keyboard::Down) {
+                    player.duck();
                 }
             }
         }
         
-        // Libération de la position baissée
-        if (event.type == sf::Event::KeyReleased && state == GameState::Playing) {
-            if (event.key.code == sf::Keyboard::Down) {
-                player->standUp();
-            }
+        if (event.type == sf::Event::KeyReleased) {
+            if (state == GameState::Playing && event.key.code == sf::Keyboard::Down) player.standUp();
         }
     }
 }
 
-/**
- * @brief Logique mathématique de mise à jour.
- * Avance le temps, scrute les inputs continus (Courir), active le polymorphisme, 
- * gère la mécanique de Scrolling du fond et le système de score.
- */
 void Game::update(float deltaTime) {
     if (state != GameState::Playing) return;
 
-    // Défaite si temps expiré
-    remainingTime -= deltaTime;
-    score += deltaTime * 100.0f; 
+    if (hasBgTexture) {
+        float bgSpeed = 100.f; 
+        bgSprite1.move(-bgSpeed * deltaTime, 0);
+        bgSprite2.move(-bgSpeed * deltaTime, 0);
 
-    if (remainingTime <= 0.0f) {
+        if (bgSprite1.getPosition().x + 800.f <= 0) bgSprite1.setPosition(bgSprite2.getPosition().x + 800.f, 0);
+        if (bgSprite2.getPosition().x + 800.f <= 0) bgSprite2.setPosition(bgSprite1.getPosition().x + 800.f, 0);
+    }
+
+    elapsedTime += deltaTime;
+    obstacleSpawnTimer += deltaTime;
+
+    float progressRatio = elapsedTime / timeLimit;
+    if (progressRatio > 1.f) progressRatio = 1.f;
+    progressBarFill.setSize(sf::Vector2f(400.f * progressRatio, 20.f));
+
+    scoreText.setString("Bananes : " + std::to_string(bananaScore));
+
+    int secondsLeft = static_cast<int>(std::ceil(timeLimit - elapsedTime));
+    if (secondsLeft < 0) secondsLeft = 0;
+    timerText.setString("Temps: " + std::to_string(secondsLeft) + " s");
+
+    // Condition POO stricte : la perte de tick rate est prise en compte, si la limite explose c'est Game Over
+    if (elapsedTime >= timeLimit) {
         state = GameState::GameOver;
+        statusText.setString("Temps ecoule !");
+        statusText.setFillColor(sf::Color::Red);
+        sf::FloatRect bounds = statusText.getLocalBounds();
+        statusText.setOrigin(bounds.left + bounds.width/2.0f, bounds.top + bounds.height/2.0f);
+        statusText.setPosition(400.f, 250.f);
         return;
     }
 
-    // Gestion du déplacement via clavier continu
-    bool isRunning = false;
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Right)) {
-        player->run(1.0f); 
-        distanceCovered += 100.0f * deltaTime; 
-        isRunning = true;
-    } else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Left)) {
-        player->run(-1.0f);
-        isRunning = true; // On joue l'animation même en reculant
-    } else {
-        player->run(0.0f);
+    if (obstacleSpawnTimer > 1.5f) { 
+        obstacleSpawnTimer = 0.f;
+        spawnEntities();
     }
 
-    if (distanceCovered >= distanceToBunker) {
-        state = GameState::Victory;
-        return;
+    bool moveLeft = sf::Keyboard::isKeyPressed(sf::Keyboard::Left);
+    bool moveRight = sf::Keyboard::isKeyPressed(sf::Keyboard::Right);
+    player.update(deltaTime, platforms, moveLeft, moveRight);
+
+    healthBarFill.setSize(sf::Vector2f(100.f * player.getLives(), 20.f)); // Update health width
+
+    for (auto it = platforms.begin(); it != platforms.end(); ) {
+        (*it)->update(deltaTime);
+        if ((*it)->isOffScreen()) {
+            delete *it;
+            it = platforms.erase(it);
+        } else ++it;
     }
 
-    // Update logique du joueur (et son animation)
-    player->update(deltaTime, isRunning);
+    for (auto it = collectibles.begin(); it != collectibles.end(); ) {
+        (*it)->update(deltaTime);
+        if (player.getBounds().intersects((*it)->getBounds()) && !(*it)->isCollected()) {
+            (*it)->collect();
+            bananaScore += 10;
+        }
+        if ((*it)->isOffScreen() || (*it)->isCollected()) {
+            delete *it;
+            it = collectibles.erase(it);
+        } else ++it;
+    }
 
-    // Défilement du Fond (Scrolling) si présence image
-    if (hasBgTex) {
-        // Le fond bouge légèrement plus vite si le joueur court vers la droite (effet supplémentaire)
-        float currentScrollSpeed = isRunning ? bgScrollSpeed * 1.5f : bgScrollSpeed;
+    for (auto it = obstacles.begin(); it != obstacles.end(); ) {
+        (*it)->update(deltaTime); 
         
-        bgSprite1.move(-currentScrollSpeed * deltaTime, 0.0f);
-        bgSprite2.move(-currentScrollSpeed * deltaTime, 0.0f);
-        
-        // Wrap-around : si un sprite sort totalement par la gauche, on le replace à l'arrière du deuxième
-        float textureWidth = static_cast<float>(bgTex.getSize().x);
-        if (bgSprite1.getPosition().x + textureWidth < 0.0f) {
-            bgSprite1.setPosition(bgSprite2.getPosition().x + textureWidth, 0.0f);
-        }
-        if (bgSprite2.getPosition().x + textureWidth < 0.0f) {
-            bgSprite2.setPosition(bgSprite1.getPosition().x + textureWidth, 0.0f);
-        }
-    }
-
-    // Apparition des Obstacles
-    timeSinceLastObstacle += deltaTime;
-    if (timeSinceLastObstacle >= 1.2f) {
-        spawnObstacle();
-        timeSinceLastObstacle = 0.0f;
-    }
-
-    // Exploitation Polymorphique de chaque Obstacle
-    for (auto it = obstacles.begin(); it != obstacles.end();) {
-        Obstacle* obs = *it;
-        obs->update(deltaTime); 
-        
-        // Nouvelle Hitbox réduite de 10% pour pardonner aux bords
-        if (obs->getHitbox().intersects(player->getHitbox())) {
-            state = GameState::GameOver;
-            return;
-        }
-
-        if (obs->isOffScreen()) {
-            delete obs; // Nettoyage impératif C++ niveau S4
-            it = obstacles.erase(it);
-        } else {
-            ++it;
-        }
-    }
-}
-
-/**
- * @brief Usine de création (Pattern Factory simple).
- * Distribution des références de Textures aux entités instanciées.
- */
-void Game::spawnObstacle() {
-    // Calcul du Safe Spawn (minimum 300px du joueur)
-    float playerRightEdge = player->getHitbox().left + player->getHitbox().width;
-    float safeSpawnX = std::max(800.0f, playerRightEdge + 300.0f);
-
-    int r = std::rand() % 2;
-    if (r == 0) {
-        obstacles.push_back(new Mine(safeSpawnX, 500.0f, mineTex, hasMineTex));
-    } else {
-        obstacles.push_back(new Drone(safeSpawnX, 430.0f, droneTex, hasDroneTex));
-    }
-}
-
-/**
- * @brief Moteur de Rendu final de l'image.
- * L'ordre Z-Index (Z-buffer) est respecté de haut en bas: Ciel -> Sol -> Entités -> UI.
- */
-void Game::render() {
-    // Couleur par défaut si aucun Sprite n'est rendu
-    window.clear(sf::Color(135, 206, 235)); 
-
-    if (state == GameState::Menu) {
-        drawMenu();
-    } else if (state == GameState::About) {
-        drawAbout();
-    } else if (state == GameState::Playing) {
-        
-        // 1. Fond (Ciel / Décor)
-        if (hasBgTex) {
-            window.draw(bgSprite1);
-            window.draw(bgSprite2);
-        }
-
-        // 2. Sol Fixe
-        sf::RectangleShape ground(sf::Vector2f(800.0f, 100.0f));
-        ground.setPosition(0.0f, 500.0f);
-        ground.setFillColor(sf::Color(34, 139, 34)); // Type herbe
-        window.draw(ground);
-
-        // 3. Entités
-        player->draw(window);
-        // Le polymorphisme est effectif ici (draw est purement virtuel et résolu à l'execution)
-        for (Obstacle* obs : obstacles) {
-            obs->draw(window);
-        }
-        
-        // 4. Debug Mode Optionnel (Hitboxes visuelles)
-        if (debugMode) {
-            auto drawRect = [&](const sf::FloatRect& r) {
-                sf::RectangleShape debugBox(sf::Vector2f(r.width, r.height));
-                debugBox.setPosition(r.left, r.top);
-                debugBox.setFillColor(sf::Color::Transparent);
-                debugBox.setOutlineColor(sf::Color::Red);
-                debugBox.setOutlineThickness(2.0f);
-                window.draw(debugBox);
-            };
-            drawRect(player->getHitbox());
-            for (Obstacle* obs : obstacles) {
-                drawRect(obs->getHitbox());
+        if (player.getBounds().intersects((*it)->getBounds())) {
+            if (dynamic_cast<Treasure*>(*it)) {
+                state = GameState::Win;
+                statusText.setString("Victoire ! Tresor trouve !");
+                statusText.setFillColor(sf::Color::Green);
+                sf::FloatRect bounds = statusText.getLocalBounds();
+                statusText.setOrigin(bounds.left + bounds.width/2.0f, bounds.top + bounds.height/2.0f);
+                statusText.setPosition(400.f, 250.f);
+            } else if (dynamic_cast<Enemy*>(*it) || dynamic_cast<Mine*>(*it) || dynamic_cast<Drone*>(*it) || dynamic_cast<Bird*>(*it)) {
+                if (player.takeDamage()) {
+                    state = GameState::GameOver;
+                    statusText.setString("Game Over ! Mort !");
+                    statusText.setFillColor(sf::Color::Red);
+                    sf::FloatRect bounds = statusText.getLocalBounds();
+                    statusText.setOrigin(bounds.left + bounds.width/2.0f, bounds.top + bounds.height/2.0f);
+                    statusText.setPosition(400.f, 250.f);
+                }
             }
         }
 
-        // 5. Interface (HUD)
-        drawUI();
+        if ((*it)->isOffScreen()) {
+            if (dynamic_cast<Treasure*>(*it) && state == GameState::Playing) {
+                state = GameState::GameOver;
+                statusText.setString("Tresor manque ! Game Over !");
+                statusText.setFillColor(sf::Color::Red);
+                sf::FloatRect bounds = statusText.getLocalBounds();
+                statusText.setOrigin(bounds.left + bounds.width/2.0f, bounds.top + bounds.height/2.0f);
+                statusText.setPosition(400.f, 250.f);
+            }
+            delete *it; 
+            it = obstacles.erase(it);
+        } else ++it;
+    }
+}
+
+void Game::render() {
+    window.clear(sf::Color(20, 20, 30));
+
+    if (hasBgTexture) {
+        window.draw(bgSprite1);
+        window.draw(bgSprite2);
+    }
+
+    if (state == GameState::Menu) {
+        window.draw(titleText);
+        window.draw(instructionText);
+    } else if (state == GameState::About) {
+        sf::Text aboutText;
+        if (fontLoaded) aboutText.setFont(font);
+        aboutText.setCharacterSize(20);
+        aboutText.setFillColor(sf::Color::White);
+        aboutText.setString("REGLES DU JEU :\n\n- Vous devez atteindre l'abri vivant.\n- Relance via R ou Entree depuis ecran de fin.\n\n[Entree] Retour Menu");
+        aboutText.setPosition(50.f, 200.f);
+        window.draw(titleText);
+        window.draw(aboutText);
+    } else if (state == GameState::Playing) {
+
         
-    } else if (state == GameState::Victory) {
-        drawEndScreen("Victoire ! Vous etes a l'abri (Bunker) !", sf::Color::Green);
-    } else if (state == GameState::GameOver) {
-        if (remainingTime <= 0.0f) {
-            drawEndScreen("Defaite ! Temps ecoule.", sf::Color::Red);
-        } else {
-            drawEndScreen("Defaite ! Touche par un obstacle.", sf::Color::Red);
-        }
+        for (size_t i = 0; i < platforms.size(); ++i) platforms[i]->draw(window);
+        for (size_t i = 0; i < collectibles.size(); ++i) collectibles[i]->draw(window);
+        
+        player.draw(window);
+        
+        for (size_t i = 0; i < obstacles.size(); ++i) obstacles[i]->draw(window); 
+        
+        window.draw(progressBarBackground);
+        window.draw(progressBarFill);
+        window.draw(scoreText);
+        window.draw(healthBarFill);
+        window.draw(healthText);
+        window.draw(timerText);
+    } else if (state == GameState::GameOver || state == GameState::Win) {
+        sf::RectangleShape overlay(sf::Vector2f(800.f, 600.f));
+        overlay.setFillColor(sf::Color(0, 0, 0, 150));
+        window.draw(overlay);
+
+        window.draw(statusText);
+        
+        sf::Text returnText;
+        if (fontLoaded) returnText.setFont(font);
+        returnText.setCharacterSize(20);
+        returnText.setFillColor(sf::Color::Yellow);
+        returnText.setString("[R] pour Rejouer  -  [Entree] pour Menu");
+        sf::FloatRect bounds = returnText.getLocalBounds();
+        returnText.setOrigin(bounds.left + bounds.width/2.0f, bounds.top + bounds.height/2.0f);
+        returnText.setPosition(400.f, 350.f);
+        window.draw(returnText);
     }
 
     window.display();
-}
-
-void Game::drawMenu() {
-    if (!hasFont) return;
-    
-    sf::Text title("Jeu de Cachette", font, 50);
-    title.setFillColor(sf::Color::Black);
-    title.setPosition(200.0f, 100.0f);
-    window.draw(title);
-
-    std::string options[3] = {"Jouer", "A Propos", "Quitter"};
-    for (int i = 0; i < 3; ++i) {
-        sf::Text txt(options[i], font, 30);
-        if (i == selectedMenuOption) {
-            txt.setFillColor(sf::Color::Red);
-            txt.setString("> " + options[i] + " <");
-            txt.setPosition(280.0f, 250.0f + i * 50.0f);
-        } else {
-            txt.setFillColor(sf::Color::Black);
-            txt.setPosition(300.0f, 250.0f + i * 50.0f);
-        }
-        window.draw(txt);
-    }
-}
-
-void Game::drawAbout() {
-    if (!hasFont) return;
-    
-    sf::Text title("A Propos & Regles", font, 40);
-    title.setFillColor(sf::Color::Black);
-    title.setPosition(250.0f, 50.0f);
-    window.draw(title);
-    
-    sf::Text desc(
-        "But du jeu:\n"
-        "Atteindre le bunker en courant vers la droite.\n"
-        "Si le chrono atteint 0 avant d'arriver, vous perdez.\n\n"
-        "Controles:\n"
-        "- Fleche Droite: Courir et progresser vers l'abri\n"
-        "- Fleche Haut/Espace: Sauter (Esquiver Mines au sol)\n"
-        "- Fleche Bas: Se baisser (Esquiver Drones volants)\n\n"
-        "Appuyez sur Echap pour retourner au menu.", font, 20);
-    desc.setFillColor(sf::Color::White);
-    desc.setOutlineColor(sf::Color::Black);
-    desc.setOutlineThickness(1.5f);
-    desc.setPosition(80.0f, 150.0f);
-    window.draw(desc);
-}
-
-void Game::drawUI() {
-    if (!hasFont) return;
-    
-    // Chronomètre
-    std::string timeStr = "Temps : " + std::to_string(static_cast<int>(remainingTime)) + "s";
-    sf::Text timeText(timeStr, font, 24);
-    timeText.setFillColor(sf::Color::Black);
-    timeText.setPosition(20.0f, 20.0f);
-    window.draw(timeText);
-
-    // Score
-    std::string scoreStr = "Score : " + std::to_string(static_cast<int>(score));
-    sf::Text scoreText(scoreStr, font, 24);
-    scoreText.setFillColor(sf::Color::Black);
-    scoreText.setPosition(400.0f, 20.0f); // Affiché en haut, centré/droite
-    window.draw(scoreText);
-    
-    // Barre de progression (Fond)
-    sf::RectangleShape pBarBackground(sf::Vector2f(300.0f, 20.0f));
-    pBarBackground.setFillColor(sf::Color::Black);
-    pBarBackground.setPosition(20.0f, 60.0f);
-    window.draw(pBarBackground);
-    
-    // Remplissage dynamique proportionnel
-    float progressRatio = distanceCovered / distanceToBunker;
-    if (progressRatio > 1.0f) progressRatio = 1.0f;
-    
-    sf::RectangleShape pBarForeground(sf::Vector2f(300.0f * progressRatio, 20.0f));
-    pBarForeground.setFillColor(sf::Color::Yellow);
-    pBarForeground.setPosition(20.0f, 60.0f);
-    window.draw(pBarForeground);
-    
-    sf::Text bunkerText("Bunker", font, 14);
-    bunkerText.setFillColor(sf::Color::White);
-    bunkerText.setPosition(330.0f, 61.0f);
-    window.draw(bunkerText);
-}
-
-void Game::drawEndScreen(const std::string& titleStr, const sf::Color& color) {
-    if (!hasFont) return;
-    
-    sf::Text title(titleStr, font, 35);
-    title.setFillColor(color);
-    title.setPosition(100.0f, 250.0f);
-    window.draw(title);
-    
-    sf::Text subtitle("Entree (ou 'R') pour rejouer, Echap pour revenir au menu", font, 24);
-    subtitle.setFillColor(sf::Color::Black);
-    subtitle.setPosition(90.0f, 320.0f);
-    window.draw(subtitle);
 }

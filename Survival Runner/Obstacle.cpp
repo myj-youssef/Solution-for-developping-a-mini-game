@@ -1,92 +1,167 @@
 #include "Obstacle.hpp"
 
-// ---------------------- MINE ----------------------
+// --- OBSTACLE BASE ---
+Obstacle::Obstacle() : speed(350.f), hasTexture(false), fallbackShape(nullptr) {}
 
-Mine::Mine(float startX, float startY, const sf::Texture& texture, bool textureLoaded) 
-    : speed(300.0f), hasTexture(textureLoaded) {
+Obstacle::~Obstacle() {
+    if (fallbackShape != nullptr) {
+        delete fallbackShape;
+        fallbackShape = nullptr;
+    }
+}
+
+void Obstacle::update(float deltaTime) {
+    if (hasTexture) sprite.move(-speed * deltaTime, 0.f);
+    if (fallbackShape) fallbackShape->move(-speed * deltaTime, 0.f);
+}
+
+void Obstacle::draw(sf::RenderWindow& window) {
+    if (hasTexture) {
+        window.draw(sprite);
+    } else if (fallbackShape) {
+        window.draw(*fallbackShape);
+    }
+}
+
+sf::FloatRect Obstacle::getBounds() const {
+    if (hasTexture) return sprite.getGlobalBounds();
+    if (fallbackShape) return fallbackShape->getGlobalBounds();
+    return sf::FloatRect();
+}
+
+bool Obstacle::isOffScreen() const {
+    float x = 0;
+    if (hasTexture) {
+        x = sprite.getPosition().x + sprite.getGlobalBounds().width;
+    } else if (fallbackShape) {
+        x = fallbackShape->getPosition().x + fallbackShape->getGlobalBounds().width;
+    }
+    return x < 0;
+}
+
+// --- ENEMY ---
+Enemy::Enemy(float groundHeight, float startX, const sf::Texture& tex, bool isValidTex) {
+    sf::RectangleShape* shape = new sf::RectangleShape(sf::Vector2f(40.f, 30.f));
+    shape->setFillColor(sf::Color::Red);
+    shape->setPosition(startX, groundHeight - 30.f);
+    fallbackShape = shape; // Polymorphic assignment
+    
+    hasTexture = isValidTex;
+    if (hasTexture) {
+        sprite.setTexture(tex);
+        float sX = 100.f / tex.getSize().x;
+        float sY = 80.f / tex.getSize().y;
+        sprite.setScale(sX, sY);
+        sprite.setPosition(startX, groundHeight - sprite.getGlobalBounds().height);
+    }
+}
+Enemy::~Enemy() {}
+
+sf::FloatRect Enemy::getBounds() const {
+    if (hasTexture) {
+        sf::FloatRect bounds = sprite.getGlobalBounds();
+        bounds.left += bounds.width * 0.1f;
+        bounds.width *= 0.8f;
+        bounds.top += bounds.height * 0.2f;
+        bounds.height *= 0.8f;
+        return bounds;
+    }
+    return Obstacle::getBounds();
+}
+
+// --- TREASURE ---
+Treasure::Treasure(float airHeight, float startX, const sf::Texture& tex, bool isValidTex) {
+    speed = 350.f * 1.3f; // Faster speed
+    sf::CircleShape* shape = new sf::CircleShape(20.f);
+    shape->setFillColor(sf::Color(255, 165, 0));
+    shape->setPosition(startX, airHeight);
+    fallbackShape = shape; // Polymorphic assignment
+    
+    hasTexture = isValidTex;
+    if (hasTexture) {
+        sprite.setTexture(tex);
+        float sX = 60.f / tex.getSize().x;
+        float sY = 60.f / tex.getSize().y;
+        sprite.setScale(sX, sY);
+        sprite.setPosition(startX, airHeight);
+    }
+}
+Treasure::~Treasure() {}
+
+sf::FloatRect Treasure::getBounds() const {
+    if (hasTexture) {
+        sf::FloatRect bounds = sprite.getGlobalBounds();
+        bounds.left += bounds.width * 0.2f;
+        bounds.width *= 0.6f;
+        bounds.top += bounds.height * 0.2f;
+        bounds.height *= 0.6f;
+        return bounds;
+    }
+    return Obstacle::getBounds();
+}
+
+// --- MINE ---
+Mine::Mine(float groundHeight, float startX, const sf::Texture& tex, bool isValidTex) {
+    sf::RectangleShape* shape = new sf::RectangleShape(sf::Vector2f(40.f, 40.f));
+    shape->setFillColor(sf::Color(100, 100, 100));
+    shape->setPosition(startX, groundHeight - 40.f);
+    fallbackShape = shape; // Polymorphic assignment
+    
+    hasTexture = isValidTex;
+    if (hasTexture) {
+        sprite.setTexture(tex);
+        sprite.setScale(50.f / tex.getSize().x, 50.f / tex.getSize().y);
+        sprite.setPosition(startX, groundHeight - sprite.getGlobalBounds().height);
+    }
+}
+Mine::~Mine() {}
+
+// --- DRONE ---
+Drone::Drone(float airHeight, float startX, const sf::Texture& tex, bool isValidTex) {
+    speed = 350.f * 1.2f; // Faster drone speed modified safely in constructor
+    
+    sf::RectangleShape* shape = new sf::RectangleShape(sf::Vector2f(50.f, 30.f));
+    shape->setFillColor(sf::Color::Cyan);
+    shape->setPosition(startX, airHeight - 30.f);
+    fallbackShape = shape; // Polymorphic assignment
+    
+    hasTexture = isValidTex;
+    if (hasTexture) {
+        sprite.setTexture(tex);
+        sprite.setScale(70.f / tex.getSize().x, 40.f / tex.getSize().y);
+        sprite.setPosition(startX, airHeight - sprite.getGlobalBounds().height);
+    }
+}
+Drone::~Drone() {}
+
+// --- BIRD ---
+Bird::Bird(float airHeight, float startX, const sf::Texture& tex, bool isValidTex) {
+    startY = airHeight;
+    timeAlive = 0.f;
+    
+    sf::RectangleShape* shape = new sf::RectangleShape(sf::Vector2f(40.f, 40.f));
+    shape->setFillColor(sf::Color::Yellow);
+    shape->setPosition(startX, airHeight);
+    fallbackShape = shape; // Polymorphic assignment
+    
+    hasTexture = isValidTex;
+    if (hasTexture) {
+        sprite.setTexture(tex);
+        sprite.setScale(60.f / tex.getSize().x, 50.f / tex.getSize().y);
+        sprite.setPosition(startX, airHeight - sprite.getGlobalBounds().height);
+    }
+}
+Bird::~Bird() {}
+
+void Bird::update(float deltaTime) {
+    // Override spécifique : trajectoire Kamikaze vers le joueur
+    float moveX = -speed * 1.5f * deltaTime;
+    float moveY = speed * 1.5f * 0.466f * deltaTime;
     
     if (hasTexture) {
-        sprite.setTexture(texture);
-        sf::Vector2u texSize = texture.getSize();
-        
-        // NORMALISATION DE LA TAILLE (Boîte fixe virtuelle 40x40 pour garantir la fair-play)
-        if (texSize.x > 0 && texSize.y > 0) {
-            sprite.setScale(40.0f / static_cast<float>(texSize.x), 40.0f / static_cast<float>(texSize.y));
-            sprite.setOrigin(0.0f, static_cast<float>(texSize.y));
-        }
-        sprite.setPosition(startX, startY);
+        sprite.move(moveX, moveY);
     }
-    
-    fallbackShape.setSize(sf::Vector2f(40.0f, 40.0f));
-    fallbackShape.setFillColor(sf::Color::Red);
-    fallbackShape.setOrigin(0.0f, 40.0f);
-    fallbackShape.setPosition(startX, startY);
-}
-
-void Mine::update(float deltaTime) {
-    if (hasTexture) sprite.move(-speed * deltaTime, 0.0f);
-    fallbackShape.move(-speed * deltaTime, 0.0f);
-}
-
-void Mine::draw(sf::RenderWindow& window) {
-    if (hasTexture) window.draw(sprite);
-    else window.draw(fallbackShape);
-}
-
-sf::FloatRect Mine::getHitbox() const {
-    sf::FloatRect bounds = hasTexture ? sprite.getGlobalBounds() : fallbackShape.getGlobalBounds();
-    float shrinkX = bounds.width * 0.1f;
-    float shrinkY = bounds.height * 0.1f;
-    return sf::FloatRect(bounds.left + shrinkX / 2.0f, bounds.top + shrinkY / 2.0f, bounds.width - shrinkX, bounds.height - shrinkY);
-}
-
-bool Mine::isOffScreen() const {
-    if (hasTexture) return sprite.getPosition().x + sprite.getGlobalBounds().width < 0.0f;
-    return fallbackShape.getPosition().x + fallbackShape.getSize().x < 0.0f;
-}
-
-// ---------------------- DRONE ----------------------
-
-Drone::Drone(float startX, float startY, const sf::Texture& texture, bool textureLoaded) 
-    : speed(400.0f), hasTexture(textureLoaded) {
-        
-    if (hasTexture) {
-        sprite.setTexture(texture);
-        sf::Vector2u texSize = texture.getSize();
-        
-        // NORMALISATION DE LA TAILLE (Boîte fixe virtuelle diametre 40)
-        if (texSize.x > 0 && texSize.y > 0) {
-            sprite.setScale(40.0f / static_cast<float>(texSize.x), 40.0f / static_cast<float>(texSize.y));
-            sprite.setOrigin(static_cast<float>(texSize.x) / 2.0f, static_cast<float>(texSize.y) / 2.0f);
-        }
-        sprite.setPosition(startX, startY);
+    if (fallbackShape) {
+        fallbackShape->move(moveX, moveY);
     }
-    
-    fallbackShape.setRadius(20.0f);
-    fallbackShape.setFillColor(sf::Color(255, 165, 0)); 
-    fallbackShape.setOrigin(20.0f, 20.0f);
-    fallbackShape.setPosition(startX, startY);
-}
-
-void Drone::update(float deltaTime) {
-    if (hasTexture) sprite.move(-speed * deltaTime, 0.0f);
-    fallbackShape.move(-speed * deltaTime, 0.0f);
-}
-
-void Drone::draw(sf::RenderWindow& window) {
-    if (hasTexture) window.draw(sprite);
-    else window.draw(fallbackShape);
-}
-
-sf::FloatRect Drone::getHitbox() const {
-    sf::FloatRect bounds = hasTexture ? sprite.getGlobalBounds() : fallbackShape.getGlobalBounds();
-    // Le drone circulaire peut avoir une hitbox plus permissive pour compenser le carré englobant
-    float shrinkX = bounds.width * 0.15f; 
-    float shrinkY = bounds.height * 0.15f;
-    return sf::FloatRect(bounds.left + shrinkX / 2.0f, bounds.top + shrinkY / 2.0f, bounds.width - shrinkX, bounds.height - shrinkY);
-}
-
-bool Drone::isOffScreen() const {
-    if (hasTexture) return sprite.getPosition().x + sprite.getGlobalBounds().width / 2.0f < 0.0f;
-    return fallbackShape.getPosition().x + fallbackShape.getRadius() < 0.0f;
 }

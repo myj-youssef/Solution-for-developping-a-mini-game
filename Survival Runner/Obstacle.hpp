@@ -1,49 +1,64 @@
-#pragma once
+#ifndef OBSTACLE_HPP
+#define OBSTACLE_HPP
 
 #include <SFML/Graphics.hpp>
+#include <iostream>
 
 /**
- * @class Obstacle
- * @brief Classe de base abstraite représentant un obstacle en jeu.
+ * @brief Classe de base Obstacle
+ * Concrétise le SRP et l'Abstraction avec une gestion mémoire par pointage brut.
  */
 class Obstacle {
+protected:
+    float speed;
+    sf::Sprite sprite;
+    bool hasTexture;
+    sf::Shape* fallbackShape; // Allocation dynamique requise
+
 public:
-    virtual ~Obstacle() {} 
-    virtual void update(float deltaTime) = 0;
-    virtual void draw(sf::RenderWindow& window) = 0;
-    // Remplacement de getBounds par getHitbox pour une collision précise (Padding appliqué)
-    virtual sf::FloatRect getHitbox() const = 0;
-    virtual bool isOffScreen() const = 0;
+    Obstacle();
+    virtual ~Obstacle(); // Nettoie le fallbackShape polymorphiquement
+
+    virtual void update(float deltaTime);
+    virtual void draw(sf::RenderWindow& window);
+    virtual sf::FloatRect getBounds() const;
+    virtual bool isOffScreen() const;
+};
+
+class Enemy : public Obstacle {
+public:
+    Enemy(float groundHeight, float startX, const sf::Texture& tex, bool isValidTex);
+    ~Enemy() override;
+    sf::FloatRect getBounds() const override; // Hitbox rétrécie
+};
+
+class Treasure : public Obstacle {
+public:
+    Treasure(float airHeight, float startX, const sf::Texture& tex, bool isValidTex);
+    ~Treasure() override;
+    sf::FloatRect getBounds() const override; // Hitbox rétrécie
 };
 
 class Mine : public Obstacle {
-private:
-    float speed;
-    sf::Sprite sprite;
-    sf::RectangleShape fallbackShape;
-    bool hasTexture;
-
 public:
-    Mine(float startX, float startY, const sf::Texture& texture, bool textureLoaded);
-    
-    void update(float deltaTime) override;
-    void draw(sf::RenderWindow& window) override;
-    sf::FloatRect getHitbox() const override;
-    bool isOffScreen() const override;
+    Mine(float groundHeight, float startX, const sf::Texture& tex, bool isValidTex);
+    ~Mine() override;
 };
 
 class Drone : public Obstacle {
-private:
-    float speed;
-    sf::Sprite sprite;
-    sf::CircleShape fallbackShape;
-    bool hasTexture;
-
 public:
-    Drone(float startX, float startY, const sf::Texture& texture, bool textureLoaded);
-    
-    void update(float deltaTime) override;
-    void draw(sf::RenderWindow& window) override;
-    sf::FloatRect getHitbox() const override;
-    bool isOffScreen() const override;
+    Drone(float airHeight, float startX, const sf::Texture& tex, bool isValidTex);
+    ~Drone() override;
 };
+
+class Bird : public Obstacle {
+private:
+    float startY;
+    float timeAlive;
+public:
+    Bird(float airHeight, float startX, const sf::Texture& tex, bool isValidTex);
+    ~Bird() override;
+    void update(float deltaTime) override; // Comportement Kamikaze unique
+};
+
+#endif // OBSTACLE_HPP
