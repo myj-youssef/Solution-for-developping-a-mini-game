@@ -3,22 +3,12 @@
 #include <cstdlib>
 #include <ctime>
 
-namespace {
-    bool loadTextureWithMask(sf::Texture& tex, const std::string& filepath) {
-        sf::Image img;
-        if (!img.loadFromFile(filepath)) return false;
-        img.createMaskFromColor(sf::Color::White);
-        return tex.loadFromImage(img);
-    }
-}
 
-Game::Game() : window(sf::VideoMode(800, 600), "Application de Jeu de Cachette"), state(GameState::Menu) {
+Game::Game() : window(sf::VideoMode(800, 600), "Runner de survie"), state(GameState::Menu) {
     window.setFramerateLimit(60);
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
 
     loadAssets();
-
-
 
     timeLimit = 50.f;
     
@@ -31,8 +21,8 @@ Game::Game() : window(sf::VideoMode(800, 600), "Application de Jeu de Cachette")
  * Évite de lire le même PNG sur le disque dur à chaque spawn de Mine ou de Drone (Optimisation).
  */
 void Game::loadAssets() {
-    fontLoaded = font.loadFromFile("assets/arial.ttf");
-    if (!fontLoaded) fontLoaded = font.loadFromFile("arial.ttf");
+    fontLoaded = font.loadFromFile("JUNGLEFE.ttf");
+    fontLoaded1 =  font1.loadFromFile("ARIAL.ttf");
 
     hasBgTexture = bgTexture.loadFromFile("assets/background.png");
     if (hasBgTexture) {
@@ -48,17 +38,18 @@ void Game::loadAssets() {
         std::cerr << "AVERTISSEMENT: 'assets/background.png' absent." << std::endl;
     }
 
-    // Chargement unique des Textures d'entités avec masque transparent
-    hasPRun1 = loadTextureWithMask(playerTexRun1, "assets/player.png");
-    hasPRun2 = loadTextureWithMask(playerTexRun2, "assets/player2.png");
-    hasPDuck = loadTextureWithMask(playerTexDuck, "assets/player_duck.png");
-    hasEnemyTex = loadTextureWithMask(enemyTex, "assets/enemy.png");
-    hasMineTex = loadTextureWithMask(mineTex, "assets/mine.png");
-    hasDroneTex = loadTextureWithMask(droneTex, "assets/drone.png");
-    hasBirdTex = loadTextureWithMask(birdTex, "assets/bird.png");
-    hasTreasureTex = loadTextureWithMask(treasureTex, "assets/treasure.png");
-    hasPlatformTex = loadTextureWithMask(platformTex, "assets/platform.png");
-    hasCollectibleTex = loadTextureWithMask(collectibleTex, "assets/banana.png");
+    // Chargement des Textures d'entités
+    hasPRun1 = playerTexRun1.loadFromFile("assets/player.png");
+    hasPRun2 = playerTexRun2.loadFromFile("assets/player2.png");
+    hasPDuck =
+        playerTexDuck.loadFromFile("assets/player_duck.png");
+    hasEnemyTex = enemyTex.loadFromFile("assets/enemy.png");
+    hasMineTex = mineTex.loadFromFile("assets/mine.png");
+    hasDroneTex = droneTex.loadFromFile("assets/drone.png");
+    hasBirdTex = birdTex.loadFromFile("assets/bird.png");
+    hasTreasureTex = treasureTex.loadFromFile("assets/treasure.png");
+    hasPlatformTex = platformTex.loadFromFile("assets/platform.png");
+    hasCollectibleTex = collectibleTex.loadFromFile("assets/banana.png");
 
     // Chargement de la musique
     if (!bgMusic.openFromFile("assets/jungle_theme.wav")) {
@@ -66,8 +57,7 @@ void Game::loadAssets() {
                 << std::endl;
     } else {
       bgMusic.setLoop(true);    // La musique recommence à l'infini
-      bgMusic.setVolume(30.f);  // Baisse un peu le volume (30%) pour ne pas
-                                // exploser les oreilles
+      bgMusic.setVolume(30.f);  // Baisse un peu le volume (30%)
       bgMusic.play();           // Lance la musique dès le chargement
     }
 }
@@ -94,8 +84,8 @@ void Game::initUI() {
     scoreText.setPosition(20.f, 20.f);
 
     titleText.setCharacterSize(50);
-    titleText.setFillColor(sf::Color::White);
-    titleText.setString("Jeu de Cachette (Bunker)");
+    titleText.setFillColor(sf::Color::Blue);
+    titleText.setString("Jeu de survie et de course");
     
     sf::FloatRect textRect = titleText.getLocalBounds();
     titleText.setOrigin(textRect.left + textRect.width/2.0f, textRect.top  + textRect.height/2.0f);
@@ -103,13 +93,13 @@ void Game::initUI() {
 
     instructionText.setCharacterSize(24);
     instructionText.setFillColor(sf::Color::White);
-    instructionText.setString("Appuyez sur [Entree] pour Jouer\n[A] pour A Propos\n[Echap] pour Quitter");
+    instructionText.setString("Appuyez sur :\n- [Entree] pour Jouer\n- [A] pour A Propos\n- [Echap] pour Quitter");
     
     textRect = instructionText.getLocalBounds();
     instructionText.setOrigin(textRect.left + textRect.width/2.0f, textRect.top  + textRect.height/2.0f);
     instructionText.setPosition(sf::Vector2f(400.0f, 300.0f));
 
-    statusText.setCharacterSize(40);
+    statusText.setCharacterSize(50);
     
     progressBarBackground.setSize(sf::Vector2f(400.f, 20.f));
     progressBarBackground.setFillColor(sf::Color(50, 50, 50, 200));
@@ -303,7 +293,7 @@ void Game::update(float deltaTime) {
         if (player.getBounds().intersects((*it)->getBounds())) {
             if (dynamic_cast<Treasure*>(*it)) {
                 state = GameState::Win;
-                statusText.setString("Victoire ! Tresor trouve !");
+                statusText.setString("Victoire\nTresor trouve !");
                 statusText.setFillColor(sf::Color::Green);
                 sf::FloatRect bounds = statusText.getLocalBounds();
                 statusText.setOrigin(bounds.left + bounds.width/2.0f, bounds.top + bounds.height/2.0f);
@@ -311,7 +301,7 @@ void Game::update(float deltaTime) {
             } else if (dynamic_cast<Enemy*>(*it) || dynamic_cast<Mine*>(*it) || dynamic_cast<Drone*>(*it) || dynamic_cast<Bird*>(*it)) {
                 if (player.takeDamage()) {
                     state = GameState::GameOver;
-                    statusText.setString("Game Over ! Mort !");
+                    statusText.setString("Game Over");
                     statusText.setFillColor(sf::Color::Red);
                     sf::FloatRect bounds = statusText.getLocalBounds();
                     statusText.setOrigin(bounds.left + bounds.width/2.0f, bounds.top + bounds.height/2.0f);
@@ -323,7 +313,7 @@ void Game::update(float deltaTime) {
         if ((*it)->isOffScreen()) {
             if (dynamic_cast<Treasure*>(*it) && state == GameState::Playing) {
                 state = GameState::GameOver;
-                statusText.setString("Tresor manque ! Game Over !");
+                statusText.setString("Tresor manque\nGame Over !");
                 statusText.setFillColor(sf::Color::Red);
                 sf::FloatRect bounds = statusText.getLocalBounds();
                 statusText.setOrigin(bounds.left + bounds.width/2.0f, bounds.top + bounds.height/2.0f);
@@ -348,10 +338,26 @@ void Game::render() {
         window.draw(instructionText);
     } else if (state == GameState::About) {
         sf::Text aboutText;
-        if (fontLoaded) aboutText.setFont(font);
-        aboutText.setCharacterSize(20);
-        aboutText.setFillColor(sf::Color::White);
-        aboutText.setString("REGLES DU JEU :\n\n- Vous devez atteindre l'abri vivant.\n- Relance via R ou Entree depuis ecran de fin.\n\n[Entree] Retour Menu");
+        if (fontLoaded1) aboutText.setFont(font1);
+        aboutText.setCharacterSize(18);
+        aboutText.setFillColor(sf::Color::Yellow);
+        //aboutText.setString("REGLES DU JEU :\n\n- Vous devez atteindre l'abri vivant.\n- Relance via R ou Entree depuis ecran de fin.\n\n[Entree] Retour Menu");
+        aboutText.setString("            --- SURVIE EN JUNGLE : LE BUNKER --- \n\n"
+    " HISTOIRE :\n"
+    " Vous incarnez un gardien tribal charge d'atteindre le dernier \n"
+    " refuge avant l'extinction du temps. La foret est hostile et \n"
+    " chaque seconde compte pour votre survie.\n\n"
+    " OBJECTIF :\n"
+    " - Parcourez la distance jusqu'au Bunker avant la fin du chrono.\n"
+    " - Esquivez les pieges terrestres (Mines, Scorpions).\n"
+    " - Evitez les menaces aeriennes (Drones, Oiseaux).\n"
+    " - Collectez des bananes pour maximiser votre score final.\n\n"
+    " COMMANDES :\n"
+    " - [Espace] ou [Fleche Haut] : Sauter (Jump)\n"
+    " - [Fleche Bas] : Se baisser (Duck)\n"
+    " - [Entree] : Retour au menu principal\n\n"
+    " DEVELOPPE PAR : Youssef Myj & Oussama Nagchi\n");
+
         aboutText.setPosition(50.f, 200.f);
         window.draw(titleText);
         window.draw(aboutText);
@@ -382,7 +388,7 @@ void Game::render() {
         if (fontLoaded) returnText.setFont(font);
         returnText.setCharacterSize(20);
         returnText.setFillColor(sf::Color::Yellow);
-        returnText.setString("[R] pour Rejouer  -  [Entree] pour Menu");
+        returnText.setString("Press :\n- [R] To Restart\n- [Enter] Menu");
         sf::FloatRect bounds = returnText.getLocalBounds();
         returnText.setOrigin(bounds.left + bounds.width/2.0f, bounds.top + bounds.height/2.0f);
         returnText.setPosition(400.f, 350.f);

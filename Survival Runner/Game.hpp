@@ -24,7 +24,9 @@ private:
     
     // Ressources partagées
     sf::Font font;
+    sf::Font font1;
     bool fontLoaded;
+    bool fontLoaded1;
     sf::Texture bgTexture;
     sf::Sprite bgSprite1;
     sf::Sprite bgSprite2;
@@ -63,7 +65,7 @@ private:
     
     // Entités
     Player player;
-    std::vector<Obstacle*> obstacles; 
+    std::vector<Obstacle*> obstacles; // 3ALAMA
     std::vector<Platform*> platforms;
     std::vector<Collectible*> collectibles;
     
